@@ -48,7 +48,7 @@ def generate_for_loop(node: ast.For):
 
 
 list_comp_count = 0
-
+INDENT = " "*4
 def handle_assign(node: ast.Assign, *, is_global=False):
     assignation = "local " if not is_global else ""
     for target in node.targets:
@@ -71,14 +71,18 @@ def handle_list_comp(node: ast.ListComp):
         if isinstance(generator, ast.comprehension):
             converted_comp +=  "for _, " + unparse_expr(generator.target) + " in next, " + unparse_expr(generator.iter) + " do\n"
             if len(generator.ifs) > 0:
+                current_indention = 1
                 for if_expr in generator.ifs:
-                    converted_comp += "if " + unparse_expr(if_expr) + " then\n"
+                    converted_comp += current_indention*INDENT + "if " + unparse_expr(if_expr) + " then\n"
+                    current_indention += 1
                 
-                converted_comp += "table.insert(" + comp_name + \
+                converted_comp += INDENT*current_indention + "table.insert(" + comp_name + \
                     ", " + unparse_expr(node.elt) + ")\n"
 
                 for if_expr in generator.ifs:
-                    converted_comp += "end\n"
+                    current_indention -= 1
+                    converted_comp += current_indention*INDENT + "end\n"
+                    
             else:
                 converted_comp += "table.insert(" + comp_name + ", " + unparse_expr(node.elt) + ")\n"
             
@@ -92,7 +96,10 @@ def unparse_expr(expr: ast.Expr, *, indent=0):
         if isinstance(expr.func, ast.Name):
             return expr.func.id + "(" + ",".join([unparse_expr(arg) for arg in expr.args]) + ")"
         elif isinstance(expr.func, ast.Attribute):
-            return unparse_expr(expr.func) + "." + expr.func.attr + "(" + ",".join([unparse_expr(arg) for arg in expr.args]) + ")"
+            if any([kw for kw in expr.keywords if (kw.arg == "nc" or kw.arg == "namecall") and bool(kw.value.value) == True]):
+                return unparse_expr(expr.func.value) + ":" + expr.func.attr + "(" + ",".join([unparse_expr(arg) for arg in expr.args]) + ")"
+            else:
+                return unparse_expr(expr.func.value) + "." + expr.func.attr + "(" + ",".join([unparse_expr(arg) for arg in expr.args]) + ")"
     elif isinstance(expr, ast.Name):
         return expr.id
     elif isinstance(expr, ast.Attribute):
@@ -135,5 +142,8 @@ def handle_body(body: list[ast.AST], *, indent=0):
             
     return generated_code
 
+output = handle_body(root.body)
+with open("output.lua", "w") as f:
+    f.write(output)
 
-print(handle_body(root.body))    
+print(output)
