@@ -49,11 +49,16 @@ def generate_for_loop(node: ast.For):
 
 list_comp_count = 0
 INDENT = " "*4
+definitions = []
 def handle_assign(node: ast.Assign, *, is_global=False):
+    global definitions
     assignation = "local " if not is_global else ""
     for target in node.targets:
-        assignation += unparse_expr(target) + " = "
-
+        if target.id in definitions:
+            assignation = unparse_expr(target) + " = "
+        else:
+            assignation += unparse_expr(target) + " = "
+            definitions.append(target.id)
     if isinstance(node.value, ast.ListComp):
         list_comp, comp_name = handle_list_comp(node.value)
         assignation = list_comp + assignation
@@ -116,11 +121,13 @@ def unparse_expr(expr: ast.Expr, *, indent=0):
         return unparse_expr(expr.left) + " " + " ".join([unparse_expr(op) for op in expr.ops]) + " " + unparse_expr(expr.comparators[0])
     elif isinstance(expr, ast.NotEq):
         return "~="
-
+    elif isinstance(expr, ast.Eq):
+        return "=="
     else:
         raise NotImplementedError(expr)
 
-
+def handle_test(node: ast.Compare):
+    return unparse_expr(node.left) + " " + " ".join([unparse_expr(op) for op in node.ops]) + " " + unparse_expr(node.comparators[0])
 
 
 def handle_body(body: list[ast.AST], *, indent=0):
@@ -130,7 +137,15 @@ def handle_body(body: list[ast.AST], *, indent=0):
         if isinstance(node, ast.Assign):
             generated_code += indent + handle_assign(node) + "\n"
         elif isinstance(node, ast.For):
-            generated_code += indent + f"for _, {unparse_expr(node.target)} in next, {unparse_expr(node.iter)} do\n"
+            # if iter is a list, use automatically add `next` to the for loop
+            if isinstance(node.iter, ast.List):
+                generated_code += indent + "for _, " + unparse_expr(node.target) + " in next, " + unparse_expr(node.iter) + " do\n"
+            elif isinstance(node.iter, ast.Call):
+                if node.iter.func.id == "enumerate":
+                    generated_code += indent + "for " + unparse_expr(node.target) + " in pairs(" + unparse_expr(node.iter.args[0]) + ") do\n"
+            else:
+                generated_code += indent + f"for {unparse_expr(node.target)} in {unparse_expr(node.iter)} do\n"
+
             generated_code += indent + handle_body(node.body, indent = 4)
             generated_code += indent + "end\n"
         elif isinstance(node, ast.Expr):
@@ -139,7 +154,10 @@ def handle_body(body: list[ast.AST], *, indent=0):
                 generated_code += indent + comp + "\n"
             else:
                 generated_code += indent + unparse_expr(node.value) + "\n"
-            
+        elif isinstance(node, ast.If):
+            generated_code += indent + "if " + unparse_expr(node.test) + " then\n"
+            generated_code += indent + handle_body(node.body, indent = 4)
+            generated_code += indent + "end\n"
     return generated_code
 
 output = handle_body(root.body)
