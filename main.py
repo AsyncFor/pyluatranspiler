@@ -54,7 +54,7 @@ def generate_attribute(node):
     elif isinstance(node, ast.Call):
         print(ast.dump(node, indent=2))
         if any([kw for kw in node.keywords if (kw.arg == "nc" or kw.arg == "namecall") and bool(kw.value.value) == True]):
-            return unparse_expr(node.func.value) + ":" + node.func.attr
+            return unparse_expr(node.func.value) + ":" + node.func.attr + "(" + generate_multiple(node.args) + ")"
         return unparse_expr(node.func) + "(" + generate_multiple(node.args) + ")"
     elif isinstance(node, ast.Constant):
         return str(node.value)
