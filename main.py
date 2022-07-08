@@ -23,6 +23,8 @@ SOFTWARE.
 """
 
 import ast
+from operator import is_
+from types import NoneType
 
 
 INPUT_FN = 'input.py'
@@ -140,6 +142,15 @@ def unparse_expr(expr: ast.Expr, *, indent=0):
     elif isinstance(expr, ast.List):
         return "{" + ",".join([unparse_expr(e) for e in expr.elts]) + "}"
     elif isinstance(expr, ast.Constant):
+        if isinstance(expr.value, str):
+            return '"' + expr.value + '"'
+        elif isinstance(expr.value, bool):
+            return str(expr.value).lower()
+        elif isinstance(expr.value, NoneType):
+            return "nil"
+        else:
+            return str(expr.value)
+
         return f"\"{expr.value}\""
     elif isinstance(expr, ast.Compare):
         return unparse_expr(expr.left) + " " + " ".join([unparse_expr(op) for op in expr.ops]) + " " + unparse_expr(expr.comparators[0])
@@ -147,12 +158,33 @@ def unparse_expr(expr: ast.Expr, *, indent=0):
         return "~="
     elif isinstance(expr, ast.Eq):
         return "=="
+    elif isinstance(expr, ast.BinOp):
+        return unparse_expr(expr.left) + " " + unparse_expr(expr.op) + " " + unparse_expr(expr.right)
+    elif isinstance(expr, ast.Mod):
+        return "%"
+    elif isinstance(expr, ast.BoolOp):
+        if isinstance(expr.op, ast.And):
+            converted = []
+            for v in expr.values:
+                converted.append(unparse_expr(v))
+                converted.append("and")
+            
+            converted.pop(-1)
+            return "(" + " ".join(converted) + ")"
+
     else:
         raise NotImplementedError(expr)
 
 def handle_test(node: ast.Compare):
     return unparse_expr(node.left) + " " + " ".join([unparse_expr(op) for op in node.ops]) + " " + unparse_expr(node.comparators[0])
 
+def is_func_call(node: ast.Expr, *, func_name: str):
+    if isinstance(node, ast.Call):
+        if isinstance(node.func, ast.Name):
+            return node.func.id == func_name
+        elif isinstance(node.func, ast.Attribute):
+            return node.func.attr == func_name
+    return False
 
 def handle_body(body: list[ast.AST], *, indent=0):
     generated_code = ""
@@ -161,14 +193,24 @@ def handle_body(body: list[ast.AST], *, indent=0):
         if isinstance(node, ast.Assign):
             generated_code += indent + handle_assign(node) + "\n"
         elif isinstance(node, ast.For):
-            # if iter is a list, use automatically add `next` to the for loop
-            if isinstance(node.iter, ast.List):
-                generated_code += indent + "for _, " + unparse_expr(node.target) + " in next, " + unparse_expr(node.iter) + " do\n"
-            elif isinstance(node.iter, ast.Call):
-                if node.iter.func.id == "enumerate":
-                    generated_code += indent + "for " + unparse_expr(node.target) + " in pairs(" + unparse_expr(node.iter.args[0]) + ") do\n"
-            else:
-                generated_code += indent + f"for {unparse_expr(node.target)} in {unparse_expr(node.iter)} do\n"
+
+            if not isinstance(node.target, ast.Tuple): # if there is only one target, use it directly
+                if is_func_call(node.iter, func_name="range"): 
+                    if len(node.iter.args) == 1:
+                        generated_code += indent + f"for {unparse_expr(node.target)}=1, {unparse_expr(node.iter.args[0])} do\n"""
+                    elif len(node.iter.args) == 2:
+                        generated_code += indent + f"for {unparse_expr(node.target)}={unparse_expr(node.iter.args[0])}, {unparse_expr(node.iter.args[1])} do\n"""
+                    elif len(node.iter.args) == 3:
+                        generated_code += indent + f"for {unparse_expr(node.target)}={unparse_expr(node.iter.args[0])}, {unparse_expr(node.iter.args[1])}, {unparse_expr(node.iter.args[2])} do\n"""
+                else:
+                    generated_code += indent + f"for _, {unparse_expr(node.target)} in next, {unparse_expr(node.iter)} do\n"
+
+
+            elif isinstance(node.target, ast.Tuple): # if there are more than 1 target take tuple
+                if isinstance(node.iter, ast.Call) and isinstance(node.iter.func, ast.Name) and node.iter.func.id == "enumerate":
+                    generated_code += indent + f"for {unparse_expr(node.target)} in pairs({unparse_expr(node.iter.args[0])}) do\n"
+                else:
+                    generated_code += indent + f"for {unparse_expr(node.target)} in {unparse_expr(node.iter)} do\n"
 
             generated_code += indent + handle_body(node.body, indent = 4)
             generated_code += indent + "end\n"
@@ -181,6 +223,9 @@ def handle_body(body: list[ast.AST], *, indent=0):
         elif isinstance(node, ast.If):
             generated_code += indent + "if " + unparse_expr(node.test) + " then\n"
             generated_code += indent + handle_body(node.body, indent = 4)
+            if node.orelse:
+                generated_code += indent + "else\n"
+                generated_code += indent + handle_body(node.orelse, indent = 4)
             generated_code += indent + "end\n"
     return generated_code
 
@@ -189,3 +234,4 @@ with open("output.lua", "w") as f:
     f.write(output)
 
 print(output)
+print(definitions)
