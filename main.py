@@ -52,7 +52,6 @@ def generate_attribute(node):
     if isinstance(node, ast.Attribute):
         return generate_attribute(node.value) + "." + node.attr
     elif isinstance(node, ast.Call):
-        print(ast.dump(node, indent=2))
         if any([kw for kw in node.keywords if (kw.arg == "nc" or kw.arg == "namecall") and bool(kw.value.value) == True]):
             return unparse_expr(node.func.value) + ":" + node.func.attr + "(" + generate_multiple(node.args) + ")"
         return unparse_expr(node.func) + "(" + generate_multiple(node.args) + ")"
@@ -145,10 +144,8 @@ def unparse_expr(expr: ast.Expr, *, indent=0):
     indent = " " * indent
     if isinstance(expr, ast.Call):
         if isinstance(expr.func, ast.Name):
-            print("yes!")
             return expr.func.id + "(" + ",".join([unparse_expr(arg) for arg in expr.args]) + ")"
         elif isinstance(expr.func, ast.Attribute):
-            print("a?")
             if any([kw for kw in expr.keywords if (kw.arg == "nc" or kw.arg == "namecall") and bool(kw.value.value) == True]):
                 return unparse_expr(expr.func.value) + ":" + expr.func.attr + "(" + ",".join([unparse_expr(arg) for arg in expr.args]) + ")"
             else:
@@ -207,6 +204,8 @@ def unparse_expr(expr: ast.Expr, *, indent=0):
         return "not "
     elif isinstance(expr, ast.Is):
         return "=="
+    elif isinstance(expr, ast.Pass):
+        return ""
     else:
         raise NotImplementedError(expr)
 
@@ -274,6 +273,14 @@ def handle_body(body: list[ast.AST], *, indent=0):
                     generated_code += indent + "else\n"
                     generated_code += indent + handle_body(node.orelse, indent = 4)
             generated_code += indent + "end\n"
+        elif isinstance(node, ast.While):
+            generated_code += indent + "while " + unparse_expr(node.test) + " do\n"
+            generated_code += indent + handle_body(node.body, indent = 4)
+            generated_code += indent + "end\n"
+        elif isinstance(node, ast.Pass):
+            pass
+        else:
+            raise NotImplementedError(node)
     return generated_code
 
 output = handle_body(root.body)
