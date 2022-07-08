@@ -279,6 +279,27 @@ def handle_body(body: list[ast.AST], *, indent=0):
             generated_code += indent + "end\n"
         elif isinstance(node, ast.Pass):
             pass
+        elif isinstance(node, ast.Return):
+            generated_code += indent + "return " + unparse_expr(node.value) + "\n"
+        elif isinstance(node, ast.FunctionDef):
+            generated_code += indent + "function " + node.name + "(" + ", ".join([arg.arg for arg in node.args.args]) + ")\n"
+            generated_code += indent + handle_body(node.body, indent = 4)
+            generated_code += indent + "end\n"
+        elif isinstance(node, ast.Try):
+            if len(node.handlers) == 1 and len(node.handlers[0].body) == 1 and isinstance(node.handlers[0].body[0], ast.Pass):
+                generated_code += indent + "pcall(function()\n"
+                generated_code += indent + handle_body(node.body, indent = 4)
+                generated_code += indent + "end)\n"
+            else:
+                generated_code += indent + "xpcall(function()\n"
+                generated_code += indent + handle_body(node.body, indent = 4)
+                generated_code += indent + "end, function(err)\n"
+                generated_code += indent + handle_body(node.handlers)
+                generated_code += indent + "end)\n"
+        elif isinstance(node, ast.Raise):
+            generated_code += indent + "error(" + unparse_expr(node.exc) + ")\n"
+        elif isinstance(node, ast.ExceptHandler):
+            generated_code += indent + handle_body(node.body, indent = 4)
         else:
             raise NotImplementedError(node)
     return generated_code
