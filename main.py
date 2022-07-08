@@ -206,6 +206,19 @@ def unparse_expr(expr: ast.Expr, *, indent=0):
         return "=="
     elif isinstance(expr, ast.Pass):
         return ""
+    elif isinstance(expr, ast.Return):
+        return "return " + unparse_expr(expr.value)
+    elif isinstance(expr, ast.Gt):
+        return ">"
+    elif isinstance(expr, ast.Lt):
+        return "<"
+    elif isinstance(expr, ast.GtE):
+        return ">="
+    elif isinstance(expr, ast.LtE):
+        return "<="
+    elif isinstance(expr, ast.Await):
+        args = [unparse_expr(arg) for arg in expr.value.args]
+        return f"coroutine.resume({unparse_expr(expr.value.func) + (', '+','.join(args) if len(args) > 0 else '')})"
     else:
         raise NotImplementedError(expr)
 
@@ -300,6 +313,23 @@ def handle_body(body: list[ast.AST], *, indent=0):
             generated_code += indent + "error(" + unparse_expr(node.exc) + ")\n"
         elif isinstance(node, ast.ExceptHandler):
             generated_code += indent + handle_body(node.body, indent = 4)
+        elif isinstance(node, ast.Import):
+            for names in node.names:
+                name = names.name
+                generated_code += indent + f"local {names.asname or name} = " + f"require('{names.name}.lua')\n"
+        elif isinstance(node, ast.ImportFrom):
+            for names in node.names:
+                name = names.name
+                if name == "*":
+                    raise NotImplementedError("import * is not possible to translate to Lua")
+                
+                generated_code += indent + f"local {names.asname or name} = " + f"require('{node.module}.lua').{names.name}\n"
+        elif isinstance(node, ast.AsyncFunctionDef):
+            generated_code += indent + f"local {node.name} = coroutine.create(function({', '.join([arg.arg for arg in node.args.args])})\n"
+            generated_code += indent + handle_body(node.body, indent = 4)
+            generated_code += indent + "end)\n"
+        elif isinstance(node, ast.Await):
+            generated_code += f"coroutine.resume({unparse_expr(node.value)})\n"
         else:
             raise NotImplementedError(node)
     return generated_code
