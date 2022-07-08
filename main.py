@@ -39,11 +39,25 @@ print(ast.dump(root, indent=2))
 
 generated_lua = ""
 
+def convert_constant(node: ast.Constant):
+    if isinstance(node.value, str):
+        return f'"{node.value}"'
+    elif isinstance(node.value, bool):
+        return str(node.value).lower()
+    else:
+        return str(node.value)
 
 def generate_attribute(node):
     """Converts attribute ast tree to a form like a.b.c"""
     if isinstance(node, ast.Attribute):
         return generate_attribute(node.value) + "." + node.attr
+    elif isinstance(node, ast.Call):
+        print(ast.dump(node, indent=2))
+        if any([kw for kw in node.keywords if (kw.arg == "nc" or kw.arg == "namecall") and bool(kw.value.value) == True]):
+            return unparse_expr(node.func.value) + ":" + node.func.attr
+        return unparse_expr(node.func) + "(" + generate_multiple(node.args) + ")"
+    elif isinstance(node, ast.Constant):
+        return str(node.value)
     else:
         return node.id
 
@@ -51,6 +65,12 @@ def generate_multiple(node):
     """Seperates tuple with value"""
     if isinstance(node, ast.Tuple):
         return ", ".join([generate_multiple(n) for n in node.elts])
+    elif isinstance(node, ast.List):
+        return "[" + generate_multiple(node.elts) + "]"
+    elif isinstance(node, list):
+        return ", ".join([generate_multiple(n) for n in node])
+    elif isinstance(node, ast.Constant):
+        return convert_constant(node)
     else:
         return generate_attribute(node)
 
@@ -125,8 +145,10 @@ def unparse_expr(expr: ast.Expr, *, indent=0):
     indent = " " * indent
     if isinstance(expr, ast.Call):
         if isinstance(expr.func, ast.Name):
+            print("yes!")
             return expr.func.id + "(" + ",".join([unparse_expr(arg) for arg in expr.args]) + ")"
         elif isinstance(expr.func, ast.Attribute):
+            print("a?")
             if any([kw for kw in expr.keywords if (kw.arg == "nc" or kw.arg == "namecall") and bool(kw.value.value) == True]):
                 return unparse_expr(expr.func.value) + ":" + expr.func.attr + "(" + ",".join([unparse_expr(arg) for arg in expr.args]) + ")"
             else:
