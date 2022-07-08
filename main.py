@@ -224,8 +224,27 @@ def handle_body(body: list[ast.AST], *, indent=0):
             generated_code += indent + "if " + unparse_expr(node.test) + " then\n"
             generated_code += indent + handle_body(node.body, indent = 4)
             if node.orelse:
-                generated_code += indent + "else\n"
-                generated_code += indent + handle_body(node.orelse, indent = 4)
+                if isinstance(node.orelse, list):
+
+                    for orelse in node.orelse:
+                        generated_code += indent + f"elseif {unparse_expr(orelse.test)} then\n"
+                        generated_code += indent + handle_body(orelse.body, indent = 4)
+                        if orelse.orelse:
+                            generated_code += indent + "else\n"
+                            generated_code += indent + handle_body(orelse.orelse, indent = 4)
+                elif isinstance(node.orelse, ast.If):
+                    generated_code += indent + "elseif " + unparse_expr(node.orelse.test) + " then\n"
+                    generated_code += indent + handle_body(node.orelse.body, indent = 4)
+                else:
+                    generated_code += indent + "else\n"
+                    generated_code += indent + handle_body(node.orelse, indent = 4)
+                # if isinstance(node.orelse[0], ast.If):
+                #     for
+                #     generated_code += indent + "elseif " + unparse_expr(node.orelse[0].test) + " then\n"
+                #     generated_code += indent + handle_body(node.orelse[0].body, indent = 4)
+                # else:
+                #     generated_code += indent + "else\n"
+                #     generated_code += indent + handle_body(node.orelse, indent = 4)
             generated_code += indent + "end\n"
     return generated_code
 

@@ -1,2 +1,4 @@
 input.py
 output.lua
+*/__pycache__
+__pycache__
