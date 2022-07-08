@@ -171,7 +171,20 @@ def unparse_expr(expr: ast.Expr, *, indent=0):
             
             converted.pop(-1)
             return "(" + " ".join(converted) + ")"
-
+        elif isinstance(expr.op, ast.Or):
+            converted = []
+            for v in expr.values:
+                converted.append(unparse_expr(v))
+                converted.append("or")
+            
+            converted.pop(-1)
+            return "(" + " ".join(converted) + ")"
+    elif isinstance(expr, ast.UnaryOp):
+        return unparse_expr(expr.op) + unparse_expr(expr.operand)
+    elif isinstance(expr, ast.Not):
+        return "not "
+    elif isinstance(expr, ast.Is):
+        return "=="
     else:
         raise NotImplementedError(expr)
 
@@ -238,13 +251,6 @@ def handle_body(body: list[ast.AST], *, indent=0):
                 else:
                     generated_code += indent + "else\n"
                     generated_code += indent + handle_body(node.orelse, indent = 4)
-                # if isinstance(node.orelse[0], ast.If):
-                #     for
-                #     generated_code += indent + "elseif " + unparse_expr(node.orelse[0].test) + " then\n"
-                #     generated_code += indent + handle_body(node.orelse[0].body, indent = 4)
-                # else:
-                #     generated_code += indent + "else\n"
-                #     generated_code += indent + handle_body(node.orelse, indent = 4)
             generated_code += indent + "end\n"
     return generated_code
 
