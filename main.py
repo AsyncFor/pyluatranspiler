@@ -23,8 +23,7 @@ SOFTWARE.
 """
 
 import ast
-from operator import is_
-from types import NoneType
+from typing import List
 
 
 INPUT_FN = 'input.py'
@@ -42,6 +41,7 @@ print(ast.dump(root, indent=2))
 
 generated_lua = ""
 
+
 def convert_constant(node: ast.Constant):
     if isinstance(node.value, str):
         return f'"{node.value}"'
@@ -49,6 +49,7 @@ def convert_constant(node: ast.Constant):
         return str(node.value).lower()
     else:
         return str(node.value)
+
 
 def generate_attribute(node):
     """Converts attribute ast tree to a form like a.b.c"""
@@ -63,6 +64,7 @@ def generate_attribute(node):
     else:
         return node.id
 
+
 def generate_multiple(node):
     """Seperates tuple with value"""
     if isinstance(node, ast.Tuple):
@@ -75,6 +77,7 @@ def generate_multiple(node):
         return convert_constant(node)
     else:
         return generate_attribute(node)
+
 
 def generate_for_loop(node: ast.For):
     """
@@ -90,14 +93,14 @@ def generate_for_loop(node: ast.For):
     """
     for_loop = f"for _,{generate_multiple(node.target)} in pairs({generate_attribute(node.iter)}) do\n"
 
-
     return for_loop
-
 
 
 list_comp_count = 0
 INDENT = " "*4
 definitions = []
+
+
 def handle_assign(node: ast.Assign, *, is_global=False):
     global definitions
     assignation = "local " if not is_global else ""
@@ -118,7 +121,7 @@ def handle_assign(node: ast.Assign, *, is_global=False):
     else:
         assignation += unparse_expr(node.value)
     return assignation
-    
+
 
 def handle_list_comp(node: ast.ListComp):
     global list_comp_count
@@ -126,26 +129,31 @@ def handle_list_comp(node: ast.ListComp):
     converted_comp = "local " + comp_name + " = {}\n"
     for generator in node.generators:
         if isinstance(generator, ast.comprehension):
-            converted_comp +=  "for _, " + unparse_expr(generator.target) + " in next, " + unparse_expr(generator.iter) + " do\n"
+            converted_comp += "for _, " + \
+                unparse_expr(generator.target) + " in next, " + \
+                unparse_expr(generator.iter) + " do\n"
             if len(generator.ifs) > 0:
                 current_indention = 1
                 for if_expr in generator.ifs:
-                    converted_comp += current_indention*INDENT + "if " + unparse_expr(if_expr) + " then\n"
+                    converted_comp += current_indention*INDENT + \
+                        "if " + unparse_expr(if_expr) + " then\n"
                     current_indention += 1
-                
+
                 converted_comp += INDENT*current_indention + "table.insert(" + comp_name + \
                     ", " + unparse_expr(node.elt) + ")\n"
 
                 for if_expr in generator.ifs:
                     current_indention -= 1
                     converted_comp += current_indention*INDENT + "end\n"
-                    
+
             else:
-                converted_comp += "table.insert(" + comp_name + ", " + unparse_expr(node.elt) + ")\n"
-            
+                converted_comp += "table.insert(" + comp_name + \
+                    ", " + unparse_expr(node.elt) + ")\n"
+
             converted_comp += "end\n"
     list_comp_count += 1
     return converted_comp, comp_name
+
 
 def unparse_expr(expr: ast.Expr, *, indent=0):
     indent = " " * indent
@@ -172,7 +180,7 @@ def unparse_expr(expr: ast.Expr, *, indent=0):
             return '"' + expr.value + '"'
         elif isinstance(expr.value, bool):
             return str(expr.value).lower()
-        elif isinstance(expr.value, NoneType):
+        elif isinstance(expr.value, None):
             return "nil"
         else:
             return str(expr.value)
@@ -194,7 +202,7 @@ def unparse_expr(expr: ast.Expr, *, indent=0):
             for v in expr.values:
                 converted.append(unparse_expr(v))
                 converted.append("and")
-            
+
             converted.pop(-1)
             return "(" + " ".join(converted) + ")"
         elif isinstance(expr.op, ast.Or):
@@ -202,7 +210,7 @@ def unparse_expr(expr: ast.Expr, *, indent=0):
             for v in expr.values:
                 converted.append(unparse_expr(v))
                 converted.append("or")
-            
+
             converted.pop(-1)
             return "(" + " ".join(converted) + ")"
     elif isinstance(expr, ast.UnaryOp):
@@ -230,11 +238,19 @@ def unparse_expr(expr: ast.Expr, *, indent=0):
         return "function(" + ", ".join([arg.arg for arg in expr.args.args]) + ") " + unparse_expr(expr.body) + " end"
     elif isinstance(expr, ast.Add):
         return "+"
+    elif isinstance(expr, ast.Sub):
+        return "-"
+    elif isinstance(expr, ast.Mult):
+        return "*"
+    elif isinstance(expr, ast.Div):
+        return "/"
     else:
         raise NotImplementedError(expr)
 
+
 def handle_test(node: ast.Compare):
     return unparse_expr(node.left) + " " + " ".join([unparse_expr(op) for op in node.ops]) + " " + unparse_expr(node.comparators[0])
+
 
 def is_func_call(node: ast.Expr, *, func_name: str):
     if isinstance(node, ast.Call):
@@ -244,7 +260,8 @@ def is_func_call(node: ast.Expr, *, func_name: str):
             return node.func.attr == func_name
     return False
 
-def handle_body(body: list[ast.AST], *, indent=0):
+
+def handle_body(body: List[ast.AST], *, indent=0):
     generated_code = ""
     indent = " " * indent
     for node in body:
@@ -252,25 +269,32 @@ def handle_body(body: list[ast.AST], *, indent=0):
             generated_code += indent + handle_assign(node) + "\n"
         elif isinstance(node, ast.For):
 
-            if not isinstance(node.target, ast.Tuple): # if there is only one target, use it directly
-                if is_func_call(node.iter, func_name="range"): 
+            # if there is only one target, use it directly
+            if not isinstance(node.target, ast.Tuple):
+                if is_func_call(node.iter, func_name="range"):
                     if len(node.iter.args) == 1:
-                        generated_code += indent + f"for {unparse_expr(node.target)}=1, {unparse_expr(node.iter.args[0])} do\n"""
+                        generated_code += indent + \
+                            f"for {unparse_expr(node.target)}=1, {unparse_expr(node.iter.args[0])} do\n"""
                     elif len(node.iter.args) == 2:
-                        generated_code += indent + f"for {unparse_expr(node.target)}={unparse_expr(node.iter.args[0])}, {unparse_expr(node.iter.args[1])} do\n"""
+                        generated_code += indent + \
+                            f"for {unparse_expr(node.target)}={unparse_expr(node.iter.args[0])}, {unparse_expr(node.iter.args[1])} do\n"""
                     elif len(node.iter.args) == 3:
-                        generated_code += indent + f"for {unparse_expr(node.target)}={unparse_expr(node.iter.args[0])}, {unparse_expr(node.iter.args[1])}, {unparse_expr(node.iter.args[2])} do\n"""
+                        generated_code += indent + \
+                            f"for {unparse_expr(node.target)}={unparse_expr(node.iter.args[0])}, {unparse_expr(node.iter.args[1])}, {unparse_expr(node.iter.args[2])} do\n"""
                 else:
-                    generated_code += indent + f"for _, {unparse_expr(node.target)} in next, {unparse_expr(node.iter)} do\n"
+                    generated_code += indent + \
+                        f"for _, {unparse_expr(node.target)} in next, {unparse_expr(node.iter)} do\n"
 
-
-            elif isinstance(node.target, ast.Tuple): # if there are more than 1 target take tuple
+            # if there are more than 1 target take tuple
+            elif isinstance(node.target, ast.Tuple):
                 if isinstance(node.iter, ast.Call) and isinstance(node.iter.func, ast.Name) and node.iter.func.id == "enumerate":
-                    generated_code += indent + f"for {unparse_expr(node.target)} in pairs({unparse_expr(node.iter.args[0])}) do\n"
+                    generated_code += indent + \
+                        f"for {unparse_expr(node.target)} in pairs({unparse_expr(node.iter.args[0])}) do\n"
                 else:
-                    generated_code += indent + f"for {unparse_expr(node.target)} in {unparse_expr(node.iter)} do\n"
+                    generated_code += indent + \
+                        f"for {unparse_expr(node.target)} in {unparse_expr(node.iter)} do\n"
 
-            generated_code += indent + handle_body(node.body, indent = 4)
+            generated_code += indent + handle_body(node.body, indent=4)
             generated_code += indent + "end\n"
         elif isinstance(node, ast.Expr):
             if isinstance(node, ast.ListComp):
@@ -279,91 +303,128 @@ def handle_body(body: list[ast.AST], *, indent=0):
             else:
                 generated_code += indent + unparse_expr(node.value) + "\n"
         elif isinstance(node, ast.If):
-            generated_code += indent + "if " + unparse_expr(node.test) + " then\n"
-            generated_code += indent + handle_body(node.body, indent = 4)
+            generated_code += indent + "if " + \
+                unparse_expr(node.test) + " then\n"
+            generated_code += indent + handle_body(node.body, indent=4)
             if node.orelse:
                 if isinstance(node.orelse, list):
 
                     for orelse in node.orelse:
-                        generated_code += indent + f"elseif {unparse_expr(orelse.test)} then\n"
-                        generated_code += indent + handle_body(orelse.body, indent = 4)
+                        generated_code += indent + \
+                            f"elseif {unparse_expr(orelse.test)} then\n"
+                        generated_code += indent + \
+                            handle_body(orelse.body, indent=4)
                         if orelse.orelse:
                             generated_code += indent + "else\n"
-                            generated_code += indent + handle_body(orelse.orelse, indent = 4)
+                            generated_code += indent + \
+                                handle_body(orelse.orelse, indent=4)
                 elif isinstance(node.orelse, ast.If):
-                    generated_code += indent + "elseif " + unparse_expr(node.orelse.test) + " then\n"
-                    generated_code += indent + handle_body(node.orelse.body, indent = 4)
+                    generated_code += indent + "elseif " + \
+                        unparse_expr(node.orelse.test) + " then\n"
+                    generated_code += indent + \
+                        handle_body(node.orelse.body, indent=4)
                 else:
                     generated_code += indent + "else\n"
-                    generated_code += indent + handle_body(node.orelse, indent = 4)
+                    generated_code += indent + \
+                        handle_body(node.orelse, indent=4)
             generated_code += indent + "end\n"
         elif isinstance(node, ast.While):
-            generated_code += indent + "while " + unparse_expr(node.test) + " do\n"
-            generated_code += indent + handle_body(node.body, indent = 4)
+            generated_code += indent + "while " + \
+                unparse_expr(node.test) + " do\n"
+            generated_code += indent + handle_body(node.body, indent=4)
             generated_code += indent + "end\n"
         elif isinstance(node, ast.Pass):
             pass
         elif isinstance(node, ast.Return):
-            generated_code += indent + "return " + unparse_expr(node.value) + "\n"
+            generated_code += indent + "return " + \
+                unparse_expr(node.value) + "\n"
         elif isinstance(node, ast.FunctionDef):
             if "anon" in (dec.id for dec in node.decorator_list) and "local" in (dec.id for dec in node.decorator_list):
-                generated_code += indent + f"local {node.name} = function" + "(" + ", ".join([arg.arg for arg in node.args.args]) + ")\n"
-                generated_code += indent + handle_body(node.body, indent = 4)
+                generated_code += indent + \
+                    f"local {node.name} = function" + \
+                    "(" + \
+                    ", ".join([arg.arg for arg in node.args.args]) + ")\n"
+                generated_code += indent + handle_body(node.body, indent=4)
                 generated_code += indent + "end\n"
             elif "local" in (dec.id for dec in node.decorator_list):
-                generated_code += indent + "local function " + node.name + "(" + ", ".join([arg.arg for arg in node.args.args]) + ")\n"
-                generated_code += indent + handle_body(node.body, indent = 4)
+                generated_code += indent + "local function " + node.name + \
+                    "(" + \
+                    ", ".join([arg.arg for arg in node.args.args]) + ")\n"
+                generated_code += indent + handle_body(node.body, indent=4)
                 generated_code += indent + "end\n"
             elif "anon" in (dec.id for dec in node.decorator_list):
-                generated_code += indent + "function(" + ", ".join([arg.arg for arg in node.args.args]) + ")\n"
-                generated_code += indent + handle_body(node.body, indent = 4)
+                generated_code += indent + \
+                    "function(" + \
+                    ", ".join([arg.arg for arg in node.args.args]) + ")\n"
+                generated_code += indent + handle_body(node.body, indent=4)
                 generated_code += indent + "end\n"
             else:
-                generated_code += indent + "function " + node.name + "(" + ", ".join([arg.arg for arg in node.args.args]) + ")\n"
-                generated_code += indent + handle_body(node.body, indent = 4)
+                generated_code += indent + "function " + node.name + \
+                    "(" + \
+                    ", ".join([arg.arg for arg in node.args.args]) + ")\n"
+                generated_code += indent + handle_body(node.body, indent=4)
                 generated_code += indent + "end\n"
         elif isinstance(node, ast.Try):
             if len(node.handlers) == 1 and len(node.handlers[0].body) == 1 and isinstance(node.handlers[0].body[0], ast.Pass):
                 generated_code += indent + "pcall(function()\n"
-                generated_code += indent + handle_body(node.body, indent = 4)
+                generated_code += indent + handle_body(node.body, indent=4)
                 generated_code += indent + "end)\n"
             else:
                 generated_code += indent + "xpcall(function()\n"
-                generated_code += indent + handle_body(node.body, indent = 4)
+                generated_code += indent + handle_body(node.body, indent=4)
                 generated_code += indent + "end, function(err)\n"
                 generated_code += indent + handle_body(node.handlers)
                 generated_code += indent + "end)\n"
+        elif isinstance(node, ast.Break):
+            generated_code += indent + "break\n"
         elif isinstance(node, ast.Raise):
-            generated_code += indent + "error(" + unparse_expr(node.exc) + ")\n"
+            generated_code += indent + \
+                "error(" + unparse_expr(node.exc) + ")\n"
         elif isinstance(node, ast.ExceptHandler):
-            generated_code += indent + handle_body(node.body, indent = 4)
+            generated_code += indent + handle_body(node.body, indent=4)
         elif isinstance(node, ast.Import):
             for names in node.names:
                 name = names.name
-                generated_code += indent + f"local {names.asname or name} = " + f"require('{names.name}.lua')\n"
+                generated_code += indent + \
+                    f"local {names.asname or name} = " + \
+                    f"require('{names.name}.lua')\n"
         elif isinstance(node, ast.ImportFrom):
             for names in node.names:
                 name = names.name
                 if name == "*":
-                    raise NotImplementedError("import * is not possible to translate to Lua")
-                
-                generated_code += indent + f"local {names.asname or name} = " + f"require('{node.module}.lua').{names.name}\n"
+                    raise NotImplementedError(
+                        "import * is not possible to translate to Lua")
+
+                generated_code += indent + \
+                    f"local {names.asname or name} = " + \
+                    f"require('{node.module}.lua').{names.name}\n"
         elif isinstance(node, ast.AsyncFunctionDef):
-            generated_code += indent + f"local {node.name} = coroutine.create(function({', '.join([arg.arg for arg in node.args.args])})\n"
-            generated_code += indent + handle_body(node.body, indent = 4)
+            generated_code += indent + \
+                f"local {node.name} = coroutine.create(function({', '.join([arg.arg for arg in node.args.args])})\n"
+            generated_code += indent + handle_body(node.body, indent=4)
             generated_code += indent + "end)\n"
         elif isinstance(node, ast.Await):
             generated_code += f"coroutine.resume({unparse_expr(node.value)})\n"
         elif isinstance(node, ast.Lambda):
-            generated_code += indent + "function " + unparse_expr(node.args) + "\n"
-            generated_code += indent + handle_body(node.body, indent = 4)
+            generated_code += indent + "function " + \
+                unparse_expr(node.args) + "\n"
+            generated_code += indent + handle_body(node.body, indent=4)
             generated_code += indent + "end\n"
         elif isinstance(node, ast.AnnAssign):
             if node.annotation.id == "local":
-                generated_code += indent + f"local {unparse_expr(node.target)} = " + unparse_expr(node.value) + "\n"
+                generated_code += indent + \
+                    f"local {unparse_expr(node.target)} = " + \
+                    unparse_expr(node.value) + "\n"
+        elif isinstance(node, ast.AugAssign):
+            generated_code += indent + \
+                unparse_expr(node.target) + " = " + \
+                unparse_expr(node.target) + " " + \
+                unparse_expr(node.op) + " " + \
+                unparse_expr(node.value) + "\n"
         else:
             raise NotImplementedError(node)
     return generated_code
+
 
 output = handle_body(root.body)
 with open("output.lua", "w") as f:
