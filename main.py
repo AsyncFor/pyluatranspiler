@@ -33,8 +33,11 @@ with open(INPUT_FN, 'r', encoding="utf-8") as f:
 
 parsed = ast.parse(input_py)
 
-root = parsed.body[0]
-
+root = None
+for node in parsed.body:
+    if isinstance(node, ast.FunctionDef):
+        if node.name == "main":
+            root = node
 print(ast.dump(root, indent=2))
 
 generated_lua = ""
@@ -99,11 +102,15 @@ def handle_assign(node: ast.Assign, *, is_global=False):
     global definitions
     assignation = "local " if not is_global else ""
     for target in node.targets:
-        if target.id in definitions:
-            assignation = unparse_expr(target) + " = "
-        else:
-            assignation += unparse_expr(target) + " = "
-            definitions.append(target.id)
+        if isinstance(target, ast.Name):
+            if target.id in definitions:
+                assignation = unparse_expr(target) + " = "
+            else:
+                assignation += unparse_expr(target) + " = "
+                definitions.append(target.id)
+        elif isinstance(target, ast.Attribute):
+            target = unparse_expr(target)
+            assignation = target + " = "
     if isinstance(node.value, ast.ListComp):
         list_comp, comp_name = handle_list_comp(node.value)
         assignation = list_comp + assignation
@@ -219,6 +226,10 @@ def unparse_expr(expr: ast.Expr, *, indent=0):
     elif isinstance(expr, ast.Await):
         args = [unparse_expr(arg) for arg in expr.value.args]
         return f"coroutine.resume({unparse_expr(expr.value.func) + (', '+','.join(args) if len(args) > 0 else '')})"
+    elif isinstance(expr, ast.Lambda):
+        return "function(" + ", ".join([arg.arg for arg in expr.args.args]) + ") " + unparse_expr(expr.body) + " end"
+    elif isinstance(expr, ast.Add):
+        return "+"
     else:
         raise NotImplementedError(expr)
 
@@ -295,9 +306,22 @@ def handle_body(body: list[ast.AST], *, indent=0):
         elif isinstance(node, ast.Return):
             generated_code += indent + "return " + unparse_expr(node.value) + "\n"
         elif isinstance(node, ast.FunctionDef):
-            generated_code += indent + "function " + node.name + "(" + ", ".join([arg.arg for arg in node.args.args]) + ")\n"
-            generated_code += indent + handle_body(node.body, indent = 4)
-            generated_code += indent + "end\n"
+            if "anon" in (dec.id for dec in node.decorator_list) and "local" in (dec.id for dec in node.decorator_list):
+                generated_code += indent + f"local {node.name} = function" + "(" + ", ".join([arg.arg for arg in node.args.args]) + ")\n"
+                generated_code += indent + handle_body(node.body, indent = 4)
+                generated_code += indent + "end\n"
+            elif "local" in (dec.id for dec in node.decorator_list):
+                generated_code += indent + "local function " + node.name + "(" + ", ".join([arg.arg for arg in node.args.args]) + ")\n"
+                generated_code += indent + handle_body(node.body, indent = 4)
+                generated_code += indent + "end\n"
+            elif "anon" in (dec.id for dec in node.decorator_list):
+                generated_code += indent + "function(" + ", ".join([arg.arg for arg in node.args.args]) + ")\n"
+                generated_code += indent + handle_body(node.body, indent = 4)
+                generated_code += indent + "end\n"
+            else:
+                generated_code += indent + "function " + node.name + "(" + ", ".join([arg.arg for arg in node.args.args]) + ")\n"
+                generated_code += indent + handle_body(node.body, indent = 4)
+                generated_code += indent + "end\n"
         elif isinstance(node, ast.Try):
             if len(node.handlers) == 1 and len(node.handlers[0].body) == 1 and isinstance(node.handlers[0].body[0], ast.Pass):
                 generated_code += indent + "pcall(function()\n"
@@ -330,6 +354,13 @@ def handle_body(body: list[ast.AST], *, indent=0):
             generated_code += indent + "end)\n"
         elif isinstance(node, ast.Await):
             generated_code += f"coroutine.resume({unparse_expr(node.value)})\n"
+        elif isinstance(node, ast.Lambda):
+            generated_code += indent + "function " + unparse_expr(node.args) + "\n"
+            generated_code += indent + handle_body(node.body, indent = 4)
+            generated_code += indent + "end\n"
+        elif isinstance(node, ast.AnnAssign):
+            if node.annotation.id == "local":
+                generated_code += indent + f"local {unparse_expr(node.target)} = " + unparse_expr(node.value) + "\n"
         else:
             raise NotImplementedError(node)
     return generated_code

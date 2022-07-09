@@ -1,2 +1,2 @@
 # Python to Lua Transpiler
-This project is a transpiler from python to lua, supports lua 5.1
+This project is a transpiler from Python to Lua, supports Lua 5.1
