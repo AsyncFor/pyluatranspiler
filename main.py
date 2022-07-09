@@ -22,24 +22,12 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
+import os
 import ast
+import sys
+import argparse
 from typing import List
 
-
-INPUT_FN = 'input.py'
-with open(INPUT_FN, 'r', encoding="utf-8") as f:
-    input_py = f.read()
-
-parsed = ast.parse(input_py)
-
-root = None
-for node in parsed.body:
-    if isinstance(node, ast.FunctionDef):
-        if node.name == "main":
-            root = node
-print(ast.dump(root, indent=2))
-
-generated_lua = ""
 
 
 def convert_constant(node: ast.Constant):
@@ -180,7 +168,7 @@ def unparse_expr(expr: ast.Expr, *, indent=0):
             return '"' + expr.value + '"'
         elif isinstance(expr.value, bool):
             return str(expr.value).lower()
-        elif isinstance(expr.value, None):
+        elif expr.value is None:
             return "nil"
         else:
             return str(expr.value)
@@ -425,10 +413,43 @@ def handle_body(body: List[ast.AST], *, indent=0):
             raise NotImplementedError(node)
     return generated_code
 
+__version__ = "0.1.0"
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Translates a Python script to Lua script. Currently supports Python 3.9+.",
+        usage=f"python3 {os.path.basename(__file__)} [options] <input> <output>",
+        epilog="Version: " + __version__,
+        )
+    
+    parser.add_argument("input", help="Input file to transpile", type=str)
+    parser.add_argument("output", help="The transpiled output file", type=str)
+    parser.add_argument("-v", "--version", action="version", version=__version__)
+    parser.add_argument("-d", "--debug", action="store_true", help="enable debug mode")
+    args = parser.parse_args()
 
-output = handle_body(root.body)
-with open("output.lua", "w") as f:
-    f.write(output)
+    input_file = args.input
+    output_file = args.output
+    is_debug = args.debug
+    with open(input_file, 'r', encoding="utf-8") as f:
+        input_py = f.read()
 
-print(output)
-print(definitions)
+    parsed = ast.parse(input_py)
+
+    root = None
+    for node in parsed.body:
+        if isinstance(node, ast.FunctionDef):
+            if node.name == "main":
+                root = node
+
+    if root is None:
+        raise Exception("No main function found in the input file")
+
+    if is_debug:    
+        print("-"*10, "DUMPED AST TREE", "-"*10)
+        print(ast.dump(root, indent=2))
+        print("-"*30)
+
+    
+    output = handle_body(root.body)
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write(output)
